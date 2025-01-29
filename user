@@ -1,0 +1,209 @@
+To enhance your Spring Boot application, consider implementing the following improvements:
+
+Custom Exception Handling:
+
+Define specific exceptions for various error scenarios, such as UserAlreadyExistsException and InvalidCredentialsException.
+Create a global exception handler using @ControllerAdvice to manage these exceptions and return appropriate HTTP responses.
+Implementation:
+
+Custom Exceptions:
+
+java
+Copy
+Edit
+package com.alvin.project.userservice.exception;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.ResponseStatus;
+
+@ResponseStatus(HttpStatus.CONFLICT)
+public class UserAlreadyExistsException extends RuntimeException {
+    public UserAlreadyExistsException(String message) {
+        super(message);
+    }
+}
+
+@ResponseStatus(HttpStatus.UNAUTHORIZED)
+public class InvalidCredentialsException extends RuntimeException {
+    public InvalidCredentialsException(String message) {
+        super(message);
+    }
+}
+Global Exception Handler:
+
+java
+Copy
+Edit
+package com.alvin.project.userservice.exception;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.ControllerAdvice;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+
+@ControllerAdvice
+public class GlobalExceptionHandler {
+
+    @ExceptionHandler(UserAlreadyExistsException.class)
+    public ResponseEntity<String> handleUserAlreadyExistsException(UserAlreadyExistsException ex) {
+        return new ResponseEntity<>(ex.getMessage(), HttpStatus.CONFLICT);
+    }
+
+    @ExceptionHandler(InvalidCredentialsException.class)
+    public ResponseEntity<String> handleInvalidCredentialsException(InvalidCredentialsException ex) {
+        return new ResponseEntity<>(ex.getMessage(), HttpStatus.UNAUTHORIZED);
+    }
+
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<String> handleGeneralException(Exception ex) {
+        return new ResponseEntity<>("An error occurred: " + ex.getMessage(), HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+}
+Service Layer Adjustments:
+
+In your UserServiceImpl, throw these custom exceptions as needed:
+
+java
+Copy
+Edit
+package com.alvin.project.userservice.service;
+
+// ... other imports ...
+import com.alvin.project.userservice.exception.UserAlreadyExistsException;
+import com.alvin.project.userservice.exception.InvalidCredentialsException;
+
+@Service
+@RequiredArgsConstructor
+public class UserServiceImpl implements UserService {
+
+    // ... existing code ...
+
+    @Override
+    public User registerUser(UserDTO userDTO) {
+        if (userRepository.findByMobileNumber(userDTO.getMobileNumber()).isPresent()) {
+            throw new UserAlreadyExistsException("Mobile number already registered");
+        }
+
+        // ... existing code ...
+    }
+
+    @Override
+    public String authenticateUser(LoginDTO loginDTO) {
+        Optional<User> user = userRepository.findByMobileNumber(loginDTO.getMobileNumber());
+
+        if (user.isPresent() && passwordEncoder.matches(loginDTO.getPassword(), user.get().getPassword())) {
+            return jwtTokenProvider.generateToken(user.get().getMobileNumber());
+        }
+
+        throw new InvalidCredentialsException("Invalid credentials");
+    }
+}
+DTO Validation:
+
+Utilize Jakarta Bean Validation annotations in your DTOs to enforce data integrity.
+In your controller, ensure that validation errors are properly handled.
+Implementation:
+
+DTO Annotations:
+
+java
+Copy
+Edit
+package com.alvin.project.userservice.dto;
+
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
+import lombok.Data;
+
+@Data
+public class UserDTO {
+    @NotBlank(message = "Mobile number is required")
+    private String mobileNumber;
+
+    @NotBlank(message = "Password is required")
+    @Size(min = 6, message = "Password must be at least 6 characters long")
+    private String password;
+}
+
+@Data
+public class LoginDTO {
+    @NotBlank(message = "Mobile number is required")
+    private String mobileNumber;
+
+    @NotBlank(message = "Password is required")
+    private String password;
+}
+Controller Adjustments:
+
+Ensure that your controller methods handle validation errors:
+
+java
+Copy
+Edit
+package com.alvin.project.userservice.controller;
+
+import com.alvin.project.userservice.dto.UserDTO;
+import com.alvin.project.userservice.dto.LoginDTO;
+import com.alvin.project.userservice.model.User;
+import com.alvin.project.userservice.service.UserService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import jakarta.validation.Valid;
+
+@RestController
+@RequestMapping("/api/auth")
+@RequiredArgsConstructor
+public class AuthController {
+
+    private final UserService userService;
+
+    @PostMapping("/register")
+    public ResponseEntity<User> register(@Valid @RequestBody UserDTO userDTO) {
+        User registeredUser = userService.registerUser(userDTO);
+        return ResponseEntity.ok(registeredUser);
+    }
+
+    @PostMapping("/login")
+    public ResponseEntity<String> login(@Valid @RequestBody LoginDTO loginDTO) {
+        String token = userService.authenticateUser(loginDTO);
+        return ResponseEntity.ok(token);
+    }
+}
+Validation Error Handling:
+
+By default, Spring Boot returns a 400 Bad Request response with a validation error message when validation fails. You can customize this behavior by creating an exception handler for MethodArgumentNotValidException in your GlobalExceptionHandler:
+
+java
+Copy
+Edit
+package com.alvin.project.userservice.exception;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.validation.FieldError;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.ControllerAdvice;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+
+import java.util.HashMap;
+import java.util.Map;
+
+@ControllerAdvice
+public class GlobalExceptionHandler {
+
+    // ... existing handlers ...
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<Map<String, String>> handleValidationExceptions(MethodArgumentNotValidException ex) {
+        Map<String, String> errors = new HashMap<>();
+        ex.getBindingResult().getAllErrors().forEach((error) -> {
+            String fieldName = ((FieldError) error).getField();
+            String errorMessage = error.getDefaultMessage();
+            errors.put(fieldName, errorMessage);
+        });
+        return new ResponseEntity<>(errors, HttpStatus.BAD_REQUEST);
+    }
+}
+By implementing these improvements, your application will have robust exception handling and data validation mechanisms, leading to enhanced reliability and maintainability.
