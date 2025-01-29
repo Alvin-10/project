@@ -1,0 +1,267 @@
+Lombok for reducing boilerplate code
+Jakarta EE instead of javax
+
+1. User.java (Model)
+
+package com.alvin.project.userservice.model;
+
+import jakarta.persistence.*;
+import lombok.*;
+
+@Entity
+@Table(name = "users")
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class User {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(unique = true, nullable = false)
+    private String mobileNumber;
+
+    @Column(nullable = false)
+    private String password;
+
+    @Column(unique = true, nullable = false, length = 12)
+    private String accountNumber;
+
+    private String role;
+}
+
+
+2. UserRepository.java (Repository)
+
+package com.alvin.project.userservice.repository;
+
+import com.alvin.project.userservice.model.User;
+import org.springframework.data.jpa.repository.JpaRepository;
+import java.util.Optional;
+
+public interface UserRepository extends JpaRepository<User, Long> {
+    Optional<User> findByMobileNumber(String mobileNumber);
+}
+
+
+3. UserService.java (Service Interface)
+
+package com.alvin.project.userservice.service;
+
+import com.alvin.project.userservice.dto.UserDTO;
+import com.alvin.project.userservice.dto.LoginDTO;
+import com.alvin.project.userservice.model.User;
+
+public interface UserService {
+    User registerUser(UserDTO userDTO);
+    String authenticateUser(LoginDTO loginDTO);
+}
+
+
+4. UserServiceImpl.java (Service Implementation)
+
+package com.alvin.project.userservice.service;
+
+import com.alvin.project.userservice.dto.UserDTO;
+import com.alvin.project.userservice.dto.LoginDTO;
+import com.alvin.project.userservice.model.User;
+import com.alvin.project.userservice.repository.UserRepository;
+import com.alvin.project.userservice.security.JwtTokenProvider;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+import lombok.RequiredArgsConstructor;
+
+import java.security.SecureRandom;
+import java.util.Optional;
+
+@Service
+@RequiredArgsConstructor
+public class UserServiceImpl implements UserService {
+
+    private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
+    private final JwtTokenProvider jwtTokenProvider;
+
+    @Override
+    public User registerUser(UserDTO userDTO) {
+        if (userRepository.findByMobileNumber(userDTO.getMobileNumber()).isPresent()) {
+            throw new RuntimeException("Mobile number already registered");
+        }
+
+        User user = new User();
+        user.setMobileNumber(userDTO.getMobileNumber());
+        user.setPassword(passwordEncoder.encode(userDTO.getPassword()));
+        user.setAccountNumber(generateAccountNumber());
+        user.setRole("USER");
+
+        return userRepository.save(user);
+    }
+
+    @Override
+    public String authenticateUser(LoginDTO loginDTO) {
+        Optional<User> user = userRepository.findByMobileNumber(loginDTO.getMobileNumber());
+
+        if (user.isPresent() && passwordEncoder.matches(loginDTO.getPassword(), user.get().getPassword())) {
+            return jwtTokenProvider.generateToken(user.get().getMobileNumber());
+        }
+
+        throw new RuntimeException("Invalid credentials");
+    }
+
+    private String generateAccountNumber() {
+        SecureRandom random = new SecureRandom();
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < 12; i++) {
+            sb.append(random.nextInt(10));
+        }
+        return sb.toString();
+    }
+}
+
+
+5. AuthController.java (Controller)
+
+package com.alvin.project.userservice.controller;
+
+import com.alvin.project.userservice.dto.UserDTO;
+import com.alvin.project.userservice.dto.LoginDTO;
+import com.alvin.project.userservice.model.User;
+import com.alvin.project.userservice.service.UserService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api/auth")
+@RequiredArgsConstructor
+public class AuthController {
+
+    private final UserService userService;
+
+    @PostMapping("/register")
+    public ResponseEntity<User> register(@RequestBody UserDTO userDTO) {
+        return ResponseEntity.ok(userService.registerUser(userDTO));
+    }
+
+    @PostMapping("/login")
+    public ResponseEntity<String> login(@RequestBody LoginDTO loginDTO) {
+        return ResponseEntity.ok(userService.authenticateUser(loginDTO));
+    }
+}
+
+
+6. JwtTokenProvider.java (JWT Security)
+
+package com.alvin.project.userservice.security;
+
+import io.jsonwebtoken.*;
+import io.jsonwebtoken.security.Keys;
+import org.springframework.stereotype.Component;
+import java.security.Key;
+import java.util.Date;
+
+@Component
+public class JwtTokenProvider {
+    private final Key key = Keys.secretKeyFor(SignatureAlgorithm.HS256);
+    private final long EXPIRATION_TIME = 86400000; // 24 hours
+
+    public String generateToken(String username) {
+        return Jwts.builder()
+                .setSubject(username)
+                .setIssuedAt(new Date())
+                .setExpiration(new Date(System.currentTimeMillis() + EXPIRATION_TIME))
+                .signWith(key)
+                .compact();
+    }
+
+    public String getUsernameFromToken(String token) {
+        return Jwts.parserBuilder()
+                .setSigningKey(key)
+                .build()
+                .parseClaimsJws(token)
+                .getBody()
+                .getSubject();
+    }
+}
+
+
+7. SecurityConfig.java (Security Configuration)
+
+package com.alvin.project.userservice.security;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.web.SecurityFilterChain;
+
+@Configuration
+public class SecurityConfig {
+
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+
+    @Bean
+    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+        http.csrf().disable()
+            .authorizeHttpRequests(auth -> auth
+                .requestMatchers("/api/auth/register", "/api/auth/login").permitAll()
+                .anyRequest().authenticated()
+            )
+            .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
+
+        return http.build();
+    }
+}
+
+
+8. UserDTO.java (DTO)
+
+package com.alvin.project.userservice.dto;
+
+import lombok.Data;
+
+@Data
+public class UserDTO {
+    private String mobileNumber;
+    private String password;
+}
+
+
+9. LoginDTO.java (DTO)
+
+package com.alvin.project.userservice.dto;
+
+import lombok.Data;
+
+@Data
+public class LoginDTO {
+    private String mobileNumber;
+    private String password;
+}
+
+
+10. application.properties
+
+server.port=8081
+spring.datasource.url=jdbc:mysql://localhost:3306/userdb
+spring.datasource.username=root
+spring.datasource.password=root
+spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver
+spring.jpa.hibernate.ddl-auto=update
+spring.jpa.show-sql=true
+jwt.secret=mysecretkey
+
+
+
+
+
+
+
+
+
