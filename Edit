@@ -1,105 +1,12 @@
-The error you're encountering indicates that Spring's dependency injection framework has found multiple beans of the same type (UserService) and is unsure which one to inject into the AuthController. In your application, both AuthServiceImpl and UserServiceImpl implement the UserService interface, leading to this ambiguity.
+@Configuration
+@EnableWebSecurity
+public class SecurityConfig {
 
-To resolve this issue, you can use the @Qualifier annotation to specify which bean should be injected. Here's how you can modify your AuthController to explicitly indicate which implementation to use:
-
-java
-Copy
-Edit
-package com.alvin.project.userservice.controller;
-
-import com.alvin.project.userservice.dto.UserDTO;
-import com.alvin.project.userservice.dto.LoginDTO;
-import com.alvin.project.userservice.model.User;
-import com.alvin.project.userservice.service.UserService;
-import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
-
-@RestController
-@RequestMapping("/api/auth")
-@RequiredArgsConstructor
-public class AuthController {
-
-    private final UserService userService;
-
-    public AuthController(@Qualifier("userServiceImpl") UserService userService) {
-        this.userService = userService;
-    }
-
-    @PostMapping("/register")
-    public ResponseEntity<User> register(@RequestBody UserDTO userDTO) {
-        return ResponseEntity.ok(userService.registerUser(userDTO));
-    }
-
-    @PostMapping("/login")
-    public ResponseEntity<String> login(@RequestBody LoginDTO loginDTO) {
-        return ResponseEntity.ok(userService.authenticateUser(loginDTO));
+    @Bean
+    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+        http.csrf().disable()
+            .authorizeRequests()
+                .anyRequest().permitAll();
+        return http.build();
     }
 }
-In this modification:
-
-The constructor of AuthController is annotated with @Qualifier("userServiceImpl"), specifying that the userServiceImpl bean should be injected.
-Ensure that your UserServiceImpl class is annotated with @Service("userServiceImpl") to match the qualifier:
-
-java
-Copy
-Edit
-package com.alvin.project.userservice.service;
-
-import com.alvin.project.userservice.dto.UserDTO;
-import com.alvin.project.userservice.dto.LoginDTO;
-import com.alvin.project.userservice.model.User;
-import com.alvin.project.userservice.repository.UserRepository;
-import com.alvin.project.userservice.security.JwtTokenProvider;
-import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.stereotype.Service;
-import lombok.RequiredArgsConstructor;
-
-import java.security.SecureRandom;
-import java.util.Optional;
-
-@Service("userServiceImpl")
-@RequiredArgsConstructor
-public class UserServiceImpl implements UserService {
-
-    private final UserRepository userRepository;
-    private final PasswordEncoder passwordEncoder;
-    private final JwtTokenProvider jwtTokenProvider;
-
-    @Override
-    public User registerUser(UserDTO userDTO) {
-        if (userRepository.findByMobileNumber(userDTO.getMobileNumber()).isPresent()) {
-            throw new RuntimeException("Mobile number already registered");
-        }
-
-        User user = new User();
-        user.setMobileNumber(userDTO.getMobileNumber());
-        user.setPassword(passwordEncoder.encode(userDTO.getPassword()));
-        user.setAccountNumber(generateAccountNumber());
-        user.setRole("USER");
-
-        return userRepository.save(user);
-    }
-
-    @Override
-    public String authenticateUser(LoginDTO loginDTO) {
-        Optional<User> user = userRepository.findByMobileNumber(loginDTO.getMobileNumber());
-
-        if (user.isPresent() && passwordEncoder.matches(loginDTO.getPassword(), user.get().getPassword())) {
-            return jwtTokenProvider.generateToken(user.get().getMobileNumber());
-        }
-
-        throw new RuntimeException("Invalid credentials");
-    }
-
-    private String generateAccountNumber() {
-        SecureRandom random = new SecureRandom();
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < 12; i++) {
-            sb.append(random.nextInt(10));
-        }
-        return sb.toString();
-    }
-}
-By specifying the qualifier in both the service implementation and the controller, you guide Spring to inject the correct bean, resolving the ambiguity.
