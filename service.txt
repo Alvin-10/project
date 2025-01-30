@@ -1,0 +1,772 @@
+UserController.java
+
+package com.alvin.project.controller;
+
+import com.alvin.project.DTO.UserDTO;
+import com.alvin.project.Model.User;
+import com.alvin.project.Service.UserService;
+import com.alvin.project.exception.UserNotFoundException;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.Optional;
+
+@RestController
+@RequestMapping("/users")
+public class UserController {
+
+    @Autowired
+    private UserService userService;
+
+    @PostMapping("/register")
+    public ResponseEntity<User> registerUser(@RequestBody UserDTO userDTO) {
+        User user = userService.registerUser(userDTO);
+        return ResponseEntity.ok(user);
+    }
+
+    @GetMapping("/getById/{id}")
+    public ResponseEntity<User> getUserById(@PathVariable Long id) {
+        User user = userService.getUserById(id)
+                .orElseThrow(() -> new UserNotFoundException("User not found with id: " + id));
+        return ResponseEntity.ok(user);
+    }
+
+    @PutMapping("/updateById/{id}")
+    public ResponseEntity<User> updateUser(@PathVariable Long id, @RequestBody UserDTO userDTO) {
+        User updatedUser = userService.updateUser(id, userDTO);
+        return ResponseEntity.ok(updatedUser);
+    }
+}
+
+
+UserDTO.java
+
+package com.alvin.project.DTO;
+import lombok.*;
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Getter
+@Setter
+public class UserDTO {
+    private String name;
+    private String mobileNumber;
+    private String email;
+    private int age;
+
+    public UserDTO(String johnDoe, String number, String mail, int i) {
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public String getMobileNumber() {
+        return mobileNumber;
+    }
+
+    public void setMobileNumber(String mobileNumber) {
+        this.mobileNumber = mobileNumber;
+    }
+
+    public String getEmail() {
+        return email;
+    }
+
+    public void setEmail(String email) {
+        this.email = email;
+    }
+
+    public int getAge() {
+        return age;
+    }
+
+    public void setAge(int age) {
+        this.age = age;
+    }
+}
+
+package com.alvin.project.exception;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+    @ExceptionHandler(UserNotFoundException.class)
+    public ResponseEntity<String> handleUserNotFoundException(UserNotFoundException ex) {
+        return new ResponseEntity<>(ex.getMessage(), HttpStatus.NOT_FOUND);
+    }
+
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<String> handleGeneralException(Exception ex) {
+        return new ResponseEntity<>("An error occurred: " + ex.getMessage(), HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+}
+
+
+package com.alvin.project.exception;
+public class UserNotFoundException extends RuntimeException {
+    public UserNotFoundException(String message) {
+        super(message);
+    }
+}
+
+
+package com.alvin.project.Model;
+
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import lombok.*;
+
+@Entity
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Getter
+@Setter
+public class User {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    private String name;
+    private String mobileNumber;
+    private String email;
+    private int age;
+    private String accountNumber;
+
+    public User(long l, String johnDoe, String number, String mail, int i, String number1) {
+    }
+
+    public Long getId() {
+        return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
+
+    public String getAccountNumber() {
+        return accountNumber;
+    }
+
+    public void setAccountNumber(String accountNumber) {
+        this.accountNumber = accountNumber;
+    }
+
+    public String getEmail() {
+        return email;
+    }
+
+    public void setEmail(String email) {
+        this.email = email;
+    }
+
+    public int getAge() {
+        return age;
+    }
+
+    public void setAge(int age) {
+        this.age = age;
+    }
+
+    public String getMobileNumber() {
+        return mobileNumber;
+    }
+
+    public void setMobileNumber(String mobileNumber) {
+        this.mobileNumber = mobileNumber;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+}
+
+
+package com.alvin.project.Repository;
+import com.alvin.project.Model.User;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+
+public interface UserRepository extends JpaRepository<User, Long> {
+    User findByAccountNumber(String accountNumber);
+}
+
+
+package com.alvin.project.Service;
+
+import com.alvin.project.DTO.UserDTO;
+import com.alvin.project.Model.User;
+
+import java.util.Optional;
+
+public interface UserService {
+    User registerUser(UserDTO userDTO);
+    Optional<User> getUserById(Long id);
+    User updateUser(Long id, UserDTO userDTO);
+}
+
+
+package com.alvin.project.Service;
+
+import com.alvin.project.DTO.UserDTO;
+import com.alvin.project.Model.User;
+import com.alvin.project.Repository.UserRepository;
+import com.alvin.project.Service.UserService;
+import com.alvin.project.client.AccountClient;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.util.Optional;
+import java.util.Random;
+
+@Service
+public class UserServiceImpl implements UserService {
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @Autowired
+    private AccountClient accountClient;
+
+    @Override
+    public User registerUser(UserDTO userDTO) {
+        User user = new User();
+        user.setName(userDTO.getName());
+        user.setMobileNumber(userDTO.getMobileNumber());
+        user.setEmail(userDTO.getEmail());
+        user.setAge(userDTO.getAge());
+        String accountNumber = generateUniqueAccountNumber();
+        user.setAccountNumber(accountNumber);
+
+        // Save user
+        User savedUser = userRepository.save(user);
+
+        // Create and save account using Feign client
+        AccountDTO accountDTO = new AccountDTO(accountNumber, 0.0);
+        accountClient.addMoney(accountDTO);
+
+        return savedUser;
+    }
+
+    @Override
+    public Optional<User> getUserById(Long id) {
+        return userRepository.findById(id);
+    }
+
+    @Override
+    public User updateUser(Long id, UserDTO userDTO) {
+        User user = userRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("User not found with id: " + id));
+        user.setName(userDTO.getName());
+        user.setMobileNumber(userDTO.getMobileNumber());
+        user.setEmail(userDTO.getEmail());
+        user.setAge(userDTO.getAge());
+        return userRepository.save(user);
+    }
+
+    private String generateUniqueAccountNumber() {
+        Random random = new Random();
+        StringBuilder accountNumber = new StringBuilder();
+        for (int i = 0; i < 12; i++) {
+            accountNumber.append(random.nextInt(10));
+        }
+        return accountNumber.toString();
+    }
+}
+
+package com.alvin.project;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.cloud.openfeign.EnableFeignClients;
+
+@SpringBootApplication
+@EnableFeignClients
+public class UserServiceApplication {
+	public static void main(String[] args) {
+		SpringApplication.run(UserServiceApplication.class, args);
+	}
+}
+
+package com.alvin.project.client;
+import com.alvin.project.DTO.AccountDTO;
+import com.alvin.project.Model.Account;
+import org.springframework.cloud.openfeign.FeignClient;
+import org.springframework.web.bind.annotation.*;
+
+@FeignClient(name = "Account_Service", url = "http://localhost:8082")
+public interface AccountClient {
+
+    @PostMapping("/accounts/add")
+    Account addMoney(@RequestBody AccountDTO accountDTO);
+
+    @PostMapping("/accounts/send")
+    Account sendMoney(@RequestBody AccountDTO accountDTO);
+
+    @GetMapping("/accounts/balance/{accountNumber}")
+    double viewBalance(@PathVariable("accountNumber") String accountNumber);
+}
+
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+		 xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+	<parent>
+		<groupId>org.springframework.boot</groupId>
+		<artifactId>spring-boot-starter-parent</artifactId>
+		<version>3.4.2</version>
+		<relativePath/> <!-- lookup parent from repository -->
+	</parent>
+	<groupId>com.alvin.project</groupId>
+	<artifactId>User_Service</artifactId>
+	<version>0.0.1-SNAPSHOT</version>
+	<name>User_Service</name>
+	<description>Demo project for Spring Boot</description>
+	<properties>
+		<java.version>23</java.version>
+	</properties>
+	<dependencyManagement>
+		<dependencies>
+			<dependency>
+				<groupId>org.springframework.cloud</groupId>
+				<artifactId>spring-cloud-dependencies</artifactId>
+				<version>2021.0.3</version> <!-- Replace with the latest version if needed -->
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>
+		</dependencies>
+	</dependencyManagement>
+	<dependencies>
+		<dependency>
+			<groupId>org.springframework.cloud</groupId>
+			<artifactId>spring-cloud-starter-openfeign</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-data-jpa</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-web</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-devtools</artifactId>
+			<scope>runtime</scope>
+			<optional>true</optional>
+		</dependency>
+		<dependency>
+			<groupId>com.mysql</groupId>
+			<artifactId>mysql-connector-j</artifactId>
+			<scope>runtime</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.projectlombok</groupId>
+			<artifactId>lombok</artifactId>
+			<optional>true</optional>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+	</dependencies>
+	<build>
+		<plugins>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-compiler-plugin</artifactId>
+				<configuration>
+					<annotationProcessorPaths>
+						<path>
+							<groupId>org.projectlombok</groupId>
+							<artifactId>lombok</artifactId>
+						</path>
+					</annotationProcessorPaths>
+				</configuration>
+			</plugin>
+			<plugin>
+				<groupId>org.springframework.boot</groupId>
+				<artifactId>spring-boot-maven-plugin</artifactId>
+				<configuration>
+					<excludes>
+						<exclude>
+							<groupId>org.projectlombok</groupId>
+							<artifactId>lombok</artifactId>
+						</exclude>
+					</excludes>
+				</configuration>
+			</plugin>
+		</plugins>
+	</build>
+</project>
+
+
+spring.application.name=User_Service
+server.port=8081
+spring.datasource.url=jdbc:mysql://localhost:3306/userdb
+spring.datasource.username=root
+spring.datasource.password=root
+spring.jpa.hibernate.ddl-auto=update
+
+
+Account_Service
+package com.alvin.project.Controller;
+
+import com.alvin.project.DTO.AccountDTO;
+import com.alvin.project.Model.Account;
+import com.alvin.project.Service.AccountService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/accounts")
+public class AccountController {
+
+    @Autowired
+    private AccountService accountService;
+
+    @PostMapping("/add")
+    public ResponseEntity<Account> addMoney(@RequestBody AccountDTO accountDTO) {
+        Account account = accountService.addMoney(accountDTO);
+        return ResponseEntity.ok(account);
+    }
+
+    @PostMapping("/send")
+    public ResponseEntity<Account> sendMoney(@RequestBody AccountDTO accountDTO) {
+        Account account = accountService.sendMoney(accountDTO);
+        return ResponseEntity.ok(account);
+    }
+
+    @GetMapping("/balance/{accountNumber}")
+    public ResponseEntity<Double> viewBalance(@PathVariable String accountNumber) {
+        double balance = accountService.viewBalance(accountNumber);
+        return ResponseEntity.ok(balance);
+    }
+}
+
+package com.alvin.project.DTO;
+
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class AccountDTO {
+    private String accountNumber;
+    private double amount;
+
+    public String getAccountNumber() {
+        return accountNumber;
+    }
+
+    public void setAccountNumber(String accountNumber) {
+        this.accountNumber = accountNumber;
+    }
+
+    public double getAmount() {
+        return amount;
+    }
+
+    public void setAmount(double amount) {
+        this.amount = amount;
+    }
+}
+
+
+
+package com.alvin.project.Model;
+
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
+
+@Entity
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class Account {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    private String accountNumber;
+    private double balance;
+
+    public Long getId() {
+        return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
+
+    public String getAccountNumber() {
+        return accountNumber;
+    }
+
+    public void setAccountNumber(String accountNumber) {
+        this.accountNumber = accountNumber;
+    }
+
+    public double getBalance() {
+        return balance;
+    }
+
+    public void setBalance(double balance) {
+        this.balance = balance;
+    }
+}
+
+package com.alvin.project.Service;
+
+import com.alvin.project.DTO.AccountDTO;
+import com.alvin.project.Model.Account;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+@Service
+public class AccountServiceImpl implements AccountService {
+
+    @Autowired
+    private AccountRepository accountRepository;
+
+    @Override
+    public Account addMoney(AccountDTO accountDTO) {
+        Account account = accountRepository.findByAccountNumber(accountDTO.getAccountNumber());
+        if (account != null) {
+            account.setBalance(account.getBalance() + accountDTO.getAmount());
+            return accountRepository.save(account);
+        }
+        throw new RuntimeException("Account not found");
+    }
+
+    @Override
+    public Account sendMoney(AccountDTO accountDTO) {
+        Account account = accountRepository.findByAccountNumber(accountDTO.getAccountNumber());
+        if (account != null) {
+            if (account.getBalance() >= accountDTO.getAmount()) {
+                account.setBalance(account.getBalance() - accountDTO.getAmount());
+                return accountRepository.save(account);
+            }
+            throw new RuntimeException("Insufficient balance");
+        }
+        throw new RuntimeException("Account not found");
+    }
+
+    @Override
+    public double viewBalance(String accountNumber) {
+        Account account = accountRepository.findByAccountNumber(accountNumber);
+        if (account != null) {
+            return account.getBalance();
+        }
+        throw new RuntimeException("Account not found");
+    }
+}
+
+package com.alvin.project.Service;
+
+
+import com.alvin.project.DTO.AccountDTO;
+import com.alvin.project.Model.Account;
+
+public interface AccountService {
+    Account addMoney(AccountDTO accountDTO);
+    Account sendMoney(AccountDTO accountDTO);
+    double viewBalance(String accountNumber);
+}
+
+package com.alvin.project.Service;
+
+import com.alvin.project.DTO.AccountDTO;
+import com.alvin.project.Model.Account;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+@Service
+public class AccountServiceImpl implements AccountService {
+
+    @Autowired
+    private AccountRepository accountRepository;
+
+    @Override
+    public Account addMoney(AccountDTO accountDTO) {
+        Account account = accountRepository.findByAccountNumber(accountDTO.getAccountNumber());
+        if (account != null) {
+            account.setBalance(account.getBalance() + accountDTO.getAmount());
+            return accountRepository.save(account);
+        }
+        throw new RuntimeException("Account not found");
+    }
+
+    @Override
+    public Account sendMoney(AccountDTO accountDTO) {
+        Account account = accountRepository.findByAccountNumber(accountDTO.getAccountNumber());
+        if (account != null) {
+            if (account.getBalance() >= accountDTO.getAmount()) {
+                account.setBalance(account.getBalance() - accountDTO.getAmount());
+                return accountRepository.save(account);
+            }
+            throw new RuntimeException("Insufficient balance");
+        }
+        throw new RuntimeException("Account not found");
+    }
+
+    @Override
+    public double viewBalance(String accountNumber) {
+        Account account = accountRepository.findByAccountNumber(accountNumber);
+        if (account != null) {
+            return account.getBalance();
+        }
+        throw new RuntimeException("Account not found");
+    }
+}
+
+
+package com.alvin.project;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.cloud.openfeign.EnableFeignClients;
+
+@SpringBootApplication
+@EnableFeignClients
+public class AccountServiceApplication {
+	public static void main(String[] args) {
+
+		SpringApplication.run(AccountServiceApplication.class, args);
+	}
+}
+
+spring.application.name=Account_Service
+server.port=8082
+spring.datasource.url=jdbc:mysql://localhost:3306/accountdb
+spring.datasource.username=root
+spring.datasource.password=root
+
+spring.jpa.hibernate.ddl-auto=update
+
+
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+		 xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+	<parent>
+		<groupId>org.springframework.boot</groupId>
+		<artifactId>spring-boot-starter-parent</artifactId>
+		<version>3.4.2</version>
+		<relativePath/> <!-- lookup parent from repository -->
+	</parent>
+	<groupId>com.alvin.project</groupId>
+	<artifactId>Account_Service</artifactId>
+	<version>0.0.1-SNAPSHOT</version>
+	<name>Account_Service</name>
+	<description>Demo project for Spring Boot</description>
+	<properties>
+		<java.version>23</java.version>
+	</properties>
+	<dependencyManagement>
+		<dependencies>
+			<dependency>
+				<groupId>org.springframework.cloud</groupId>
+				<artifactId>spring-cloud-dependencies</artifactId>
+				<version>2021.0.3</version> <!-- Replace with the latest version if needed -->
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>
+		</dependencies>
+	</dependencyManagement>
+	<dependencies>
+		<dependency>
+			<groupId>org.springframework.cloud</groupId>
+			<artifactId>spring-cloud-starter-openfeign</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-data-jpa</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-web</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-devtools</artifactId>
+			<scope>runtime</scope>
+			<optional>true</optional>
+		</dependency>
+		<dependency>
+			<groupId>com.mysql</groupId>
+			<artifactId>mysql-connector-j</artifactId>
+			<scope>runtime</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.projectlombok</groupId>
+			<artifactId>lombok</artifactId>
+			<optional>true</optional>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+	</dependencies>
+	<build>
+		<plugins>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-compiler-plugin</artifactId>
+				<configuration>
+					<annotationProcessorPaths>
+						<path>
+							<groupId>org.projectlombok</groupId>
+							<artifactId>lombok</artifactId>
+						</path>
+					</annotationProcessorPaths>
+				</configuration>
+			</plugin>
+			<plugin>
+				<groupId>org.springframework.boot</groupId>
+				<artifactId>spring-boot-maven-plugin</artifactId>
+				<configuration>
+					<excludes>
+						<exclude>
+							<groupId>org.projectlombok</groupId>
+							<artifactId>lombok</artifactId>
+						</exclude>
+					</excludes>
+				</configuration>
+			</plugin>
+		</plugins>
+	</build>
+</project>
+
+
+above i give full code for user service and account service 
+now i need to get a account number in account service that i stored in a generate in userdb
+by using that account no i need to add send money, view bakance 
+
+for communication above i used feign but there is sum errors in that
+so now i wanted do communication in restTemplate. shall i go with restTemplate or feign 
+give me full implementation part
